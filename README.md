@@ -21,8 +21,8 @@ This synapse's password provider allows you to validate a password for a given u
 - self-hosted clouds (Nextcloud, ownCloud, ...)
 
 
-**NOTE:** You can integrate it with a backend any backend changing the config, rest and attributes sections.
-**IMPORTANT:** The provider only uses ONLY ONE email to add to 3PIDs and does it at registration.
+**NOTE:** You can integrate it with any backend changing the config, rest and attributes sections.
+**IMPORTANT:** The provider uses ONLY ONE email (not serveral like Matrix), for adding 3PIDs, at registration time.
 
 ## Install
 ### From Synapse v0.34.0/py3
@@ -41,10 +41,10 @@ password_providers:
   - module: "rest_auth_provider.RestAuthProvider"
     config:
       endpoint: "http://change.me.example.com:12345"
-	  loginuir: "/provider/login"
+      loginuir: "/provider/login"
      rest:
 	  user_id: "username"
-	  password: "password"
+      password: "password"
       email: "email"
     attributes:
       display_name: "fullname"
@@ -111,7 +111,7 @@ To use this module with your back-end, you will need to implement a single REST 
 Assumption of the request auth provider
 ```json
 {
-  "username": "@username:domain"
+  "username": "@username:domain",
   "password": "somepassword"
 }
 ```
@@ -119,7 +119,7 @@ or/and
 
 ```json
 {
-  "email": "someemail"
+  "email": "someemail",
   "password": "somepassword"
 }
 ```
@@ -127,7 +127,7 @@ or/and
 Assumption of the returned json of the provider
 ```json
 {
-  "fullname": "Name and Lastname"
+  "fullname": "Name and Lastname",
   "username": "someusername",
   "email": "someemail"
 }
