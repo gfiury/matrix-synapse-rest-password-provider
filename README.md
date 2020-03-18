@@ -43,7 +43,7 @@ password_providers:
       endpoint: "http://change.me.example.com:12345"
       loginuir: "/provider/login"
      rest:
-	  user_id: "username"
+      user_id: "username"
       password: "password"
       email: "email"
     attributes:
