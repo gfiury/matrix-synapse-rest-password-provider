@@ -44,8 +44,6 @@ class RestAuthProvider(object):
         logger.info("Got password check for " + user_id)
         data = {self.rest["user_id"]:user_id, self.rest["password"]:password}
         r = requests.post(self.endpoint + self.loginuri, json = data)
-        # raise an exception for error codes (4xx or 5xx)
-        r.raise_for_status()
 
         if not r.ok:
             logger.info("User not authenticated")
@@ -64,51 +62,23 @@ class RestAuthProvider(object):
                 logger.info('User %s was cannot be created due to username lowercase policy', localpart)
                 defer.returnValue(False)
 
-            user_id, access_token = (yield self.account_handler.register(localpart=localpart))
+            display_name = localpart
+            if r[self.attributes["display_name"]]:
+               display_name = r[self.attributes["display_name"]]
+			
+            emails = []			
+            if r[self.attributes["email"]]:
+                emails = [r[self.attributes["email"]]]
+			   
+            (yield self.account_handler.register(localpart=localpart, displayname=display_name, emails=emails))
             registration = True
             logger.info("Registration based on REST data was successful for %s", user_id)
         else:
             logger.info("User %s already exists, registration skipped", user_id)
 
-        logger.info("Handling user info")
-        if r[self.attributes["display_name"]]:
-
-            store = yield self.account_handler.hs.get_profile_handler().store
-            if ((registration and self.config.setNameOnRegister) or (self.config.setNameOnLogin)):
-                display_name = r[self.attributes["display_name"]]
-                logger.info("Setting display name to '%s' based on profile data", display_name)
-                yield store.set_profile_displayname(localpart, display_name)
-            else:
-                logger.info("Display name was not set because it was not given or policy restricted it")
-
-        # The email is not updated by self.config.updateThreepid
-        # The email is like the user_id, cant be changed
-        if (registration):
-            if r[self.attributes["email"]]:
-                logger.info("Handling 3PIDs for user %s with email %s", user_id, address)
-
-                medium = "email"
-                address = r[self.attributes["email"]]
-                logger.info("Looking for 3PID %s:%s in user profile", medium, address)
-
-                validated_at = self.account_handler.hs.get_clock().time_msec()
-                if not (yield store.get_user_id_by_threepid(medium, address)):
-                    logger.info("3PID is not present, adding")
-                    yield store.user_add_threepid(
-                        user_id,
-                        medium,
-                        address,
-                        validated_at,
-                        validated_at
-                    )
-            else:
-                logger.info("3PID is present, skipping")
-        else:
-            logger.info("3PIDs were not updated due to policy")
-
         defer.returnValue(True)
-		
-	@defer.inlineCallbacks
+
+    @defer.inlineCallbacks
     def check_3pid_auth(self, medium, address, password):
         """ Handle authentication against thirdparty login types, such as email
             Args:
@@ -124,70 +94,36 @@ class RestAuthProvider(object):
         if medium != "email":
             defer.returnValue(None)
 
-        # Talk to LDAP and check if this email/password combo is correct
-        try:
+        data = {self.rest["email"]:address, self.rest["password"]:password}
+        r = requests.post(self.endpoint + self.loginuri, json = data)
 
-            data = {self.rest["email"]:address, self.rest["password"]:password}
-            r = requests.post(self.endpoint + self.loginuri, json = data)
-            # raise an exception for error codes (4xx or 5xx)
-            r.raise_for_status()
+        if not r.ok:
+            logger.info("User not authenticated")
+            defer.returnValue(False)
 
-            if not r.ok:
-                logger.info("User not authenticated")
+        r = r.json()
+
+        user_id = r[self.rest["user_id"]]
+        display_name = user_id
+		
+        registration = False
+        if not (yield self.account_handler.check_user_exists(user_id)):
+            logger.info("User %s does not exist yet, creating...", user_id)
+
+            if localpart != localpart.lower() and self.regLower:
+                logger.info('User %s was cannot be created due to username lowercase policy', localpart)
                 defer.returnValue(False)
-
-            r = r.json()
-
-            registration = False
-            if not (yield self.account_handler.check_user_exists(user_id)):
-                logger.info("User %s does not exist yet, creating...", user_id)
-
-                if localpart != localpart.lower() and self.regLower:
-                    logger.info('User %s was cannot be created due to username lowercase policy', localpart)
-                    defer.returnValue(False)
-
-                user_id, access_token = (yield self.account_handler.register(localpart=localpart))
-                registration = True
-                logger.info("Registration based on REST data was successful for %s", user_id)
-            else:
-                logger.info("User %s already exists, registration skipped", user_id)
-
-            logger.info("Handling user info")
+				
             if r[self.attributes["display_name"]]:
+                display_name = r[self.attributes["display_name"]]
+				
+            user_id, access_token = (yield self.account_handler.register(localpart=user_id, displayname=display_name, emails=[email]))
+            registration = True
+            logger.info("Registration based on REST data was successful for %s", user_id)
+        else:
+            logger.info("User %s already exists, registration skipped", user_id)
 
-                store = yield self.account_handler.hs.get_profile_handler().store
-                if ((registration and self.config.setNameOnRegister) or (self.config.setNameOnLogin)):
-                    display_name = r[self.attributes["display_name"]]
-                    logger.info("Setting display name to '%s' based on profile data", display_name)
-                    yield store.set_profile_displayname(localpart, display_name)
-                else:
-                    logger.info("Display name was not set because it was not given or policy restricted it")
-
-            # The email is not updated by self.config.updateThreepid
-            # The email is like the user_id, cant be changed
-            if (registration):
-                    logger.info("Handling 3PIDs for user %s with email %s", user_id, address)
-
-                    medium = "email"
-                    logger.info("Looking for 3PID %s:%s in user profile", medium, address)
-
-                    validated_at = self.account_handler.hs.get_clock().time_msec()
-                    # Just in case, it should not be present
-                    if not (yield store.get_user_id_by_threepid(medium, address)):
-                        logger.info("3PID is not present, adding")
-                        yield store.user_add_threepid(
-                            user_id,
-                            medium,
-                            address,
-                            validated_at,
-                            validated_at
-                        )
-                    else:
-                        logger.info("3PID is present, skipping")
-            else:
-                logger.info("3PIDs were not updated due to policy")
-
-            defer.returnValue(True)
+        defer.returnValue(True)
 
     @staticmethod
     def parse_config(config):
@@ -204,8 +140,9 @@ class RestAuthProvider(object):
 
         rest_config = _RestConfig()
         rest_config.endpoint = config["endpoint"]
-		rest_config.rest = config["rest"]
-		rest_config.attributes = config["attributes"]
+        rest_config.loginuri = config["loginuri"]
+        rest_config.rest = config["rest"]
+        rest_config.attributes = config["attributes"]
 
         try:
             rest_config.regLower = config['policy']['registration']['username']['enforceLowercase']
@@ -224,7 +161,7 @@ class RestAuthProvider(object):
         except KeyError:
             # we don't care
             pass
-        
+
         try:
             rest_config.setNameOnLogin = config['policy']['login']['profile']['name']
         except TypeError:
